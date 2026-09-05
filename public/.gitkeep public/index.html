@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta name="theme-color" content="#111111"/>
+<link rel="manifest" href="/manifest.json"/>
+<link rel="apple-touch-icon" href="/icon-192.png"/>
+<title>戒烟提醒</title>
+<style>
+:root{--bg:#f5f6f7;--card:#fff;--text:#111;--sub:#777;--line:#e8e8e8}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC",sans-serif;color:var(--text)}
+.app{max-width:520px;margin:auto;padding:calc(18px + env(safe-area-inset-top)) 16px 30px}
+.hero{background:#111;color:#fff;border-radius:28px;padding:26px 22px;box-shadow:0 12px 28px rgba(0,0,0,.14)}
+.hero h1{margin:8px 0;font-size:30px}.hero p{color:#ddd;line-height:1.55;margin:0}.emoji{font-size:44px}
+.card{background:#fff;border-radius:22px;padding:18px;margin-top:14px;box-shadow:0 4px 18px rgba(0,0,0,.05)}
+.card h2{margin:0 0 12px;font-size:17px}.times{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+.time{border:1px solid var(--line);border-radius:15px;padding:13px 4px;text-align:center;font-weight:700;background:#fafafa}
+.row{display:flex;gap:10px;margin-top:12px}
+button{border:0;border-radius:15px;padding:14px 12px;font-size:15px;font-weight:700;flex:1}
+.primary{background:#111;color:#fff}.secondary{background:#eef0f2}.success{background:#e8f8ef;color:#09844f}
+.muted{font-size:13px;color:var(--sub);line-height:1.5}.status{font-weight:700;margin-top:4px}
+.big{font-size:40px;font-weight:800}.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#111;color:#fff;border-radius:14px;padding:12px 15px;opacity:0;transition:.2s;pointer-events:none}.toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div class="app">
+  <section class="hero">
+    <div class="emoji">🚭</div>
+    <h1>今天不要抽烟</h1>
+    <p>安装到安卓桌面并允许通知后，即使网页没打开，后台服务器也会按时给你发送提醒。</p>
+  </section>
+
+  <section class="card">
+    <h2>每天提醒</h2>
+    <div class="times">
+      <div class="time">10:00</div><div class="time">12:00</div><div class="time">14:00</div>
+      <div class="time">16:00</div><div class="time">18:00</div><div class="time">20:00</div>
+    </div>
+    <p class="muted">默认时区：Asia/Shanghai。部署时可以修改。</p>
+  </section>
+
+  <section class="card">
+    <h2>后台通知</h2>
+    <div class="status" id="status">正在检查…</div>
+    <div class="row">
+      <button class="primary" id="enable">开启后台提醒</button>
+      <button class="secondary" id="test">测试推送</button>
+    </div>
+    <p class="muted">安卓 Chrome 建议先“安装应用/添加到主屏幕”，再点“开启后台提醒”。</p>
+  </section>
+
+  <section class="card">
+    <h2>今天坚持了几次</h2>
+    <div><span class="big" id="wins">0</span> 次</div>
+    <div class="row"><button class="success" id="win">我忍住了 ✓</button></div>
+  </section>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $=id=>document.getElementById(id);
+const key="quit_wins_"+new Date().toISOString().slice(0,10);
+let wins=parseInt(localStorage.getItem(key)||"0",10);
+$("wins").textContent=wins;
+
+function toast(t){const el=$("toast");el.textContent=t;el.classList.add("show");setTimeout(()=>el.classList.remove("show"),1800)}
+function b64ToUint8Array(base64String){
+  const padding="=".repeat((4-base64String.length%4)%4);
+  const base64=(base64String+padding).replace(/-/g,"+").replace(/_/g,"/");
+  const raw=atob(base64); return Uint8Array.from([...raw].map(c=>c.charCodeAt(0)));
+}
+async function getRegistration(){
+  if(!("serviceWorker" in navigator)) throw new Error("当前浏览器不支持 Service Worker");
+  return await navigator.serviceWorker.register("/sw.js");
+}
+async function refreshStatus(){
+  if(!("Notification" in window)){ $("status").textContent="当前浏览器不支持通知"; return; }
+  const reg=await getRegistration();
+  const sub=await reg.pushManager.getSubscription();
+  $("status").textContent=sub?"✅ 后台提醒已开启":"尚未开启后台提醒";
+}
+$("enable").onclick=async()=>{
+  try{
+    if(Notification.permission!=="granted"){
+      const p=await Notification.requestPermission();
+      if(p!=="granted") throw new Error("你没有允许通知权限");
+    }
+    const reg=await getRegistration();
+    let sub=await reg.pushManager.getSubscription();
+    if(!sub){
+      const r=await fetch("/api/vapid-public-key");
+      const {publicKey}=await r.json();
+      sub=await reg.pushManager.subscribe({
+        userVisibleOnly:true,
+        applicationServerKey:b64ToUint8Array(publicKey)
+      });
+    }
+    await fetch("/api/subscribe",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(sub)});
+    toast("后台提醒已开启");
+    refreshStatus();
+  }catch(e){alert(e.message||e)}
+}
+$("test").onclick=async()=>{
+  try{
+    await fetch("/api/test-push",{method:"POST"});
+    toast("测试推送已发送");
+  }catch(e){alert("测试失败")}
+}
+$("win").onclick=()=>{wins++;localStorage.setItem(key,wins);$("wins").textContent=wins;toast("又忍住一次 ✓")}
+refreshStatus().catch(()=>{$("status").textContent="后台提醒暂不可用"});
+</script>
+</body></html>
