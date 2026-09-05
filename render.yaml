@@ -1,0 +1,22 @@
+
+services:
+  - type: web
+    name: quit-smoking-reminder
+    env: docker
+    plan: starter
+    autoDeploy: true
+    envVars:
+      - key: APP_TIMEZONE
+        value: Asia/Shanghai
+      - key: REMINDER_HOURS
+        value: 10,12,14,16,18,20
+      - key: VAPID_SUBJECT
+        value: mailto:admin@example.com
+      - key: SUBSCRIPTIONS_FILE
+        value: /var/data/subscriptions.json
+      - key: VAPID_FILE
+        value: /var/data/vapid.json
+    disk:
+      name: app-data
+      mountPath: /var/data
+      sizeGB: 1
